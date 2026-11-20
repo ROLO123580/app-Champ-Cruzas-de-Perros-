@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "211253832975",
+    "project_id": "champ-dog-app",
+    "storage_bucket": "champ-dog-app.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:211253832975:android:f30ed593b3830aa795627a",
+        "android_client_info": {
+          "package_name": "com.example.champ"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "211253832975-9d1udt9nlte0taq4co3r1o458mgkmck5.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBwqs8pxsmxGXK0d6AMiNx7vObmbkN5CMg"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "211253832975-9d1udt9nlte0taq4co3r1o458mgkmck5.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

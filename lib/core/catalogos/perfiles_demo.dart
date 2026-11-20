@@ -1,0 +1,76 @@
+import '../modelos/cruces.dart';
+
+/// Catálogo local de demostración. El interés no proviene de usuarios reales.
+class CargarPerfiles {
+  List<PerfilPerro> ejecutar() => const [
+    PerfilPerro(
+      id: 'demo-luna',
+      nombre: 'Luna',
+      raza: 'Golden retriever',
+      sexo: 'Hembra',
+      edadMeses: 36,
+      ciudad: 'Santiago',
+      responsable: 'Camila',
+      descripcion: 'Sociable y juguetona. Le encantan los paseos y el agua.',
+      imagenUrl: 'https://images.unsplash.com/photo-1552053831-71594a27632d?w=900&auto=format&fit=crop',
+      interesDemo: true,
+    ),
+    PerfilPerro(
+      id: 'demo-max',
+      nombre: 'Max',
+      raza: 'Golden retriever',
+      sexo: 'Macho',
+      edadMeses: 42,
+      ciudad: 'Santiago',
+      responsable: 'Diego',
+      descripcion: 'Tranquilo, cariñoso y siempre listo para salir al parque.',
+      imagenUrl: 'https://images.unsplash.com/photo-1633722715463-d30f4f325e24?w=900&auto=format&fit=crop',
+      interesDemo: true,
+    ),
+    PerfilPerro(
+      id: 'demo-nala',
+      nombre: 'Nala',
+      raza: 'Labrador',
+      sexo: 'Hembra',
+      edadMeses: 30,
+      ciudad: 'Valparaíso',
+      responsable: 'Antonia',
+      descripcion:
+          'Curiosa y llena de energía. Disfruta las caminatas en familia.',
+      imagenUrl: 'https://images.unsplash.com/photo-1543466835-00a7907e9de1?w=900&auto=format&fit=crop',
+    ),
+    PerfilPerro(
+      id: 'demo-rocky',
+      nombre: 'Rocky',
+      raza: 'Labrador',
+      sexo: 'Macho',
+      edadMeses: 48,
+      ciudad: 'Valparaíso',
+      responsable: 'Tomás',
+      descripcion: 'Compañero de aventuras, muy amistoso con otros perros.',
+      imagenUrl: 'https://images.unsplash.com/photo-1587300003388-59208cc962cb?w=900&auto=format&fit=crop',
+    ),
+    PerfilPerro(
+      id: 'demo-kira',
+      nombre: 'Kira',
+      raza: 'Border collie',
+      sexo: 'Hembra',
+      edadMeses: 32,
+      ciudad: 'Santiago',
+      responsable: 'Javiera',
+      descripcion: 'Atenta, activa y fanática de jugar con la pelota.',
+      interesDemo: true,
+    ),
+    PerfilPerro(
+      id: 'demo-bruno',
+      nombre: 'Bruno',
+      raza: 'Border collie',
+      sexo: 'Macho',
+      edadMeses: 38,
+      ciudad: 'Concepción',
+      responsable: 'Felipe',
+      descripcion: 'Le gustan los espacios abiertos y aprender juegos nuevos.',
+      interesDemo: true,
+    ),
+  ];
+}

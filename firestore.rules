@@ -1,0 +1,223 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function autenticado() { return request.auth != null; }
+    function participante(datos) {
+      return autenticado() && request.auth.uid in datos.participantes;
+    }
+    match /fichas_privadas_champ/{uid} {
+      allow get: if autenticado() && request.auth.uid == uid;
+      allow create, update: if autenticado() && request.auth.uid == uid &&
+        request.resource.data.keys().hasOnly(['contenido','revision','actualizado']) &&
+        request.resource.data.contenido is string && request.resource.data.contenido.size() <= 350000 &&
+        request.resource.data.revision is int && request.resource.data.actualizado == request.time &&
+        ((!exists(/databases/$(database)/documents/fichas_privadas_champ/$(uid)) && request.resource.data.revision == 1) ||
+        (exists(/databases/$(database)/documents/fichas_privadas_champ/$(uid)) && request.resource.data.revision == resource.data.revision + 1));
+    }
+    function texto(d, k, n) { return d[k] is string && d[k].size() > 0 && d[k].size() <= n; }
+    match /paseadores_champ/{uid} {
+      function valido(d) {
+        return d.keys().hasOnly(['nombre','zona','descripcion','condiciones','disponibilidad','duracion','activo','revision','actualizado']) &&
+          texto(d,'nombre',120) && texto(d,'zona',120) && texto(d,'descripcion',1500) &&
+          texto(d,'condiciones',1500) && texto(d,'disponibilidad',500) &&
+          d.duracion in [30,60,90,120] && d.activo is bool && d.revision is int && d.actualizado == request.time;
+      }
+      allow get: if autenticado() && (request.auth.uid == uid || resource.data.activo == true);
+      allow list: if autenticado() && resource.data.activo == true;
+      allow create: if autenticado() && request.auth.uid == uid && valido(request.resource.data) && request.resource.data.revision == 1;
+      allow update: if autenticado() && request.auth.uid == uid && valido(request.resource.data) && request.resource.data.revision == resource.data.revision + 1;
+    }
+    match /reservas_paseos/{id} {
+      function parte(d) { return autenticado() && (request.auth.uid == d.clienteUid || request.auth.uid == d.paseadorUid); }
+      function bloqueo(d,n) {
+        let b = getAfter(/databases/$(database)/documents/bloques_paseadores/$(d.paseadorUid + '_' + string(d.bloqueInicial+n))).data;
+        return b.reservaId == id && b.paseadorUid == d.paseadorUid && b.bloque == d.bloqueInicial+n;
+      }
+      function libre(d,n) { return !existsAfter(/databases/$(database)/documents/bloques_paseadores/$(d.paseadorUid + '_' + string(d.bloqueInicial+n))); }
+      function bloques(d,ocupados) {
+        return (ocupados ? bloqueo(d,0) : libre(d,0)) &&
+          (d.duracion < 60 || (ocupados ? bloqueo(d,1) : libre(d,1))) &&
+          (d.duracion < 90 || (ocupados ? bloqueo(d,2) : libre(d,2))) &&
+          (d.duracion < 120 || (ocupados ? bloqueo(d,3) : libre(d,3)));
+      }
+      function nueva(d) {
+        let p = get(/databases/$(database)/documents/paseadores_champ/$(d.paseadorUid)).data;
+        return d.keys().hasOnly(['clienteUid','clienteNombre','paseadorUid','paseadorNombre','perro','zona','inicioMs','bloqueInicial','duracion','condiciones','perfilRevision','nota','estado','creado','actualizado']) &&
+          d.clienteUid == request.auth.uid && texto(d,'paseadorUid',128) && d.paseadorUid != request.auth.uid &&
+          texto(d,'clienteNombre',120) && texto(d,'perro',80) && texto(d,'zona',160) &&
+          d.nota is string && d.nota.size() <= 1000 && d.inicioMs is int && d.bloqueInicial is int &&
+          d.inicioMs == d.bloqueInicial * 1800000 && d.inicioMs > request.time.toMillis() &&
+          p.activo == true && d.perfilRevision == p.revision && d.paseadorNombre == p.nombre &&
+          d.condiciones == p.condiciones && d.duracion == p.duracion && d.duracion in [30,60,90,120] &&
+          d.estado == 'solicitada' && d.creado == request.time && d.actualizado == request.time;
+      }
+      function cambio(d,a) {
+        let proveedor = request.auth.uid == d.paseadorUid;
+        return a.diff(d).affectedKeys().hasOnly(['estado','actualizado']) && a.actualizado == request.time && (
+          (d.estado == 'solicitada' && (
+            (proveedor && a.estado == 'aceptada' && d.inicioMs > request.time.toMillis() && bloques(d,true)) ||
+            (proveedor && a.estado == 'rechazada') ||
+            (!proveedor && a.estado == 'cancelada'))) ||
+          (d.estado == 'aceptada' && ((a.estado == 'cancelada' && bloques(d,false)) ||
+            (proveedor && a.estado == 'enCurso' && d.inicioMs <= request.time.toMillis() && bloques(d,true)))) ||
+          (d.estado == 'enCurso' && proveedor && a.estado == 'finalizada' && bloques(d,false)));
+      }
+      allow get: if autenticado() && (!exists(/databases/$(database)/documents/reservas_paseos/$(id)) || parte(resource.data));
+      allow list: if parte(resource.data);
+      allow create: if autenticado() && nueva(request.resource.data);
+      allow update: if parte(resource.data) && cambio(resource.data,request.resource.data);
+    }
+    match /bloques_paseadores/{id} {
+      function reserva(d) { return get(/databases/$(database)/documents/reservas_paseos/$(d.reservaId)).data; }
+      allow get: if autenticado() && (!exists(/databases/$(database)/documents/bloques_paseadores/$(id)) || request.auth.uid == resource.data.paseadorUid || request.auth.uid == reserva(resource.data).clienteUid);
+      allow create: if autenticado() && request.resource.data.keys().hasOnly(['reservaId','paseadorUid','bloque']) && request.resource.data.bloque is int &&
+        request.resource.data.paseadorUid == request.auth.uid &&
+        id == request.auth.uid + '_' + string(request.resource.data.bloque) &&
+        getAfter(/databases/$(database)/documents/reservas_paseos/$(request.resource.data.reservaId)).data.estado == 'aceptada' &&
+        getAfter(/databases/$(database)/documents/reservas_paseos/$(request.resource.data.reservaId)).data.paseadorUid == request.auth.uid &&
+        request.resource.data.bloque >= getAfter(/databases/$(database)/documents/reservas_paseos/$(request.resource.data.reservaId)).data.bloqueInicial &&
+        request.resource.data.bloque < getAfter(/databases/$(database)/documents/reservas_paseos/$(request.resource.data.reservaId)).data.bloqueInicial + getAfter(/databases/$(database)/documents/reservas_paseos/$(request.resource.data.reservaId)).data.duracion / 30;
+      allow delete: if autenticado() && request.auth.uid in [reserva(resource.data).clienteUid,reserva(resource.data).paseadorUid] &&
+        getAfter(/databases/$(database)/documents/reservas_paseos/$(resource.data.reservaId)).data.estado in ['cancelada','finalizada'];
+    }
+
+    match /avisos_perros/{id} {
+      function avisoValido(d) {
+        return d.keys().hasOnly(['autorUid', 'autorNombre', 'tipo', 'nombre', 'raza',
+          'zona', 'lugar', 'descripcion', 'fechaVistaMs', 'chip', 'chipUltimos', 'foto',
+          'resuelto', 'notaCierre', 'creado', 'actualizado']) &&
+          d.autorUid is string && d.autorUid.size() > 0 && d.autorUid.size() <= 128 &&
+          d.autorNombre is string && d.autorNombre.size() > 0 && d.autorNombre.size() <= 120 &&
+          d.tipo in ['perdido', 'encontrado'] &&
+          d.nombre is string && d.nombre.size() <= 80 && d.raza is string && d.raza.size() <= 80 &&
+          d.zona is string && d.zona.size() > 0 && d.zona.size() <= 120 &&
+          d.lugar is string && d.lugar.size() > 0 && d.lugar.size() <= 160 &&
+          d.descripcion is string && d.descripcion.size() > 0 && d.descripcion.size() <= 2000 &&
+          d.fechaVistaMs is int && d.fechaVistaMs >= 946684800000 && d.fechaVistaMs <= request.time.toMillis() &&
+          d.chip in ['si', 'no', 'desconocido'] && d.chipUltimos is string &&
+          (d.chipUltimos == '' || (d.chip == 'si' && d.chipUltimos.matches('^[0-9]{4}$'))) &&
+          d.foto is string && d.foto.size() <= 120000 &&
+          (d.foto == '' || d.foto.matches('^iVBORw0KGgo[A-Za-z0-9+/]*={0,2}$')) &&
+          d.resuelto is bool && d.notaCierre is string && d.notaCierre.size() <= 500 &&
+          d.actualizado == request.time;
+      }
+      allow read: if autenticado();
+      allow create: if autenticado() && avisoValido(request.resource.data) &&
+        request.resource.data.autorUid == request.auth.uid &&
+        request.resource.data.creado == request.time &&
+        !request.resource.data.resuelto && request.resource.data.notaCierre == '';
+      allow update: if autenticado() && resource.data.autorUid == request.auth.uid &&
+        avisoValido(request.resource.data) && !resource.data.resuelto &&
+        ((request.resource.data.resuelto && request.resource.data.notaCierre.size() > 0 &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['resuelto', 'notaCierre', 'actualizado'])) ||
+        (!request.resource.data.resuelto && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'tipo', 'nombre', 'raza', 'zona', 'lugar', 'descripcion', 'fechaVistaMs', 'chip', 'chipUltimos', 'foto', 'actualizado'])));
+    }
+    // El muro y los eventos son visibles para cuentas autenticadas.
+    // Las conversaciones de eventos solo son visibles a miembros actuales.
+    match /muro_champ/{id} {
+      allow read: if autenticado();
+      allow create: if autenticado() &&
+        request.resource.data.keys().hasOnly(['autorUid', 'autorNombre', 'texto', 'creado']) &&
+        request.resource.data.autorUid == request.auth.uid &&
+        request.resource.data.autorNombre is string &&
+        request.resource.data.autorNombre.size() > 0 && request.resource.data.autorNombre.size() <= 120 &&
+        request.resource.data.texto is string &&
+        request.resource.data.texto.size() > 0 && request.resource.data.texto.size() <= 2000 &&
+        request.resource.data.creado == request.time;
+    }
+    match /eventos_champ/{id} {
+      function valido(d) {
+        return d.keys().hasOnly(['autorUid', 'autorNombre', 'titulo', 'descripcion', 'lugar', 'zona',
+          'inicioMs', 'duracion', 'cupos', 'tipo', 'participantes', 'cancelado', 'creado', 'actualizado']) &&
+          d.autorUid is string && d.autorUid.size() > 0 && d.autorUid.size() <= 128 &&
+          d.autorNombre is string && d.autorNombre.size() > 0 && d.autorNombre.size() <= 120 &&
+          d.titulo is string && d.titulo.size() > 0 && d.titulo.size() <= 120 &&
+          d.descripcion is string && d.descripcion.size() > 0 && d.descripcion.size() <= 2000 &&
+          d.lugar is string && d.lugar.size() > 0 && d.lugar.size() <= 120 &&
+          d.zona is string && d.zona.size() > 0 && d.zona.size() <= 120 &&
+          d.inicioMs is int && d.duracion is int && d.duracion >= 15 && d.duracion <= 720 &&
+          d.cupos is int && d.cupos >= 2 && d.cupos <= 100 &&
+          d.tipo in ['evento', 'paseo'] && d.cancelado is bool &&
+          d.participantes is map && d.participantes.size() >= 1 && d.participantes.size() <= d.cupos &&
+          d.autorUid in d.participantes && d.participantes[d.autorUid] == d.autorNombre &&
+          d.actualizado == request.time;
+      }
+      function inscripcion() {
+        let anterior = resource.data.participantes;
+        let nuevo = request.resource.data.participantes;
+        let uid = request.auth.uid;
+        return uid != resource.data.autorUid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['participantes', 'actualizado']) &&
+          nuevo.diff(anterior).affectedKeys().hasOnly([uid]) &&
+          ((!(uid in anterior) && uid in nuevo && nuevo[uid] is string &&
+            nuevo[uid].size() > 0 && nuevo[uid].size() <= 120 &&
+            !resource.data.cancelado && resource.data.inicioMs > request.time.toMillis() &&
+            nuevo.size() == anterior.size() + 1) ||
+          (uid in anterior && !(uid in nuevo) && nuevo.size() == anterior.size() - 1));
+      }
+      allow read: if autenticado();
+      allow create: if autenticado() && valido(request.resource.data) &&
+        request.resource.data.autorUid == request.auth.uid &&
+        request.resource.data.creado == request.time &&
+        request.resource.data.inicioMs > request.time.toMillis() && !request.resource.data.cancelado &&
+        request.resource.data.participantes.keys().hasOnly([request.auth.uid]);
+      allow update: if autenticado() && valido(request.resource.data) &&
+        (inscripcion() || (resource.data.autorUid == request.auth.uid &&
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['cancelado', 'actualizado']) &&
+          !resource.data.cancelado && request.resource.data.cancelado));
+      match /mensajes/{mensajeId} {
+        function evento() { return get(/databases/$(database)/documents/eventos_champ/$(id)).data; }
+        function miembro() { return autenticado() && request.auth.uid in evento().participantes; }
+        allow read: if miembro();
+        allow create: if miembro() && !evento().cancelado &&
+          evento().inicioMs + evento().duracion * 60000 > request.time.toMillis() &&
+          request.resource.data.keys().hasOnly(['uid', 'nombre', 'texto', 'fecha']) &&
+          request.resource.data.uid == request.auth.uid &&
+          request.resource.data.nombre == evento().participantes[request.auth.uid] &&
+          request.resource.data.texto is string &&
+          request.resource.data.texto.size() > 0 && request.resource.data.texto.size() <= 4000 &&
+          request.resource.data.fecha == request.time;
+      }
+    }
+    match /chats/{chatId} {
+      // La transacción puede consultar el ID estable antes de crearlo.
+      allow get: if autenticado() &&
+        (!exists(/databases/$(database)/documents/chats/$(chatId)) || participante(resource.data));
+      allow list: if participante(resource.data);
+      allow create: if participante(request.resource.data) &&
+        request.resource.data.keys().hasOnly(['participantes', 'fecha', 'actualizada', 'ultimoTexto']) &&
+        request.resource.data.participantes is list &&
+        request.resource.data.participantes.size() == 2 &&
+        request.resource.data.participantes[0] is string &&
+        request.resource.data.participantes[1] is string &&
+        request.resource.data.participantes[0] != request.resource.data.participantes[1] &&
+        request.resource.data.participantes[0].size() > 0 &&
+        request.resource.data.participantes[1].size() > 0 &&
+        request.resource.data.participantes[0].size() <= 128 &&
+        request.resource.data.participantes[1].size() <= 128 &&
+        request.resource.data.fecha == request.time &&
+        request.resource.data.actualizada == request.time &&
+        request.resource.data.ultimoTexto == '';
+      allow update: if participante(resource.data) &&
+        request.resource.data.diff(resource.data).affectedKeys().hasOnly(['actualizada', 'ultimoTexto']) &&
+        request.resource.data.actualizada == request.time &&
+        request.resource.data.ultimoTexto is string &&
+        request.resource.data.ultimoTexto.size() > 0 &&
+        request.resource.data.ultimoTexto.size() <= 4000;
+      match /mensajes/{mensajeId} {
+        function chat() { return get(/databases/$(database)/documents/chats/$(chatId)).data; }
+        allow read: if participante(chat());
+        allow create: if participante(chat()) &&
+          request.resource.data.keys().hasOnly(['remitenteId', 'texto', 'fecha']) &&
+          request.resource.data.remitenteId == request.auth.uid &&
+          request.resource.data.fecha == request.time &&
+          request.resource.data.texto is string &&
+          request.resource.data.texto.size() > 0 &&
+          request.resource.data.texto.size() <= 4000 &&
+          getAfter(/databases/$(database)/documents/chats/$(chatId)).data.ultimoTexto == request.resource.data.texto &&
+          getAfter(/databases/$(database)/documents/chats/$(chatId)).data.actualizada == request.time;
+      }
+    }
+  }
+}

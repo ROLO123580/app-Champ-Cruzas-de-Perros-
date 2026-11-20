@@ -1,0 +1,2 @@
+-- Solo comun.sql: las funciones jurídicas todavía no están definidas.
+-- No se presuponen expedientes, integraciones judiciales ni fuentes legales.
