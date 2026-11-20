@@ -180,6 +180,15 @@ service cloud.firestore {
           request.resource.data.fecha == request.time;
       }
     }
+    // Directorio de contactos del chat: solo UID y nombre visible.
+    match /perfiles_publicos/{uid} {
+      allow read: if autenticado();
+      allow create, update: if autenticado() && request.auth.uid == uid &&
+        request.resource.data.keys().hasOnly(['nombre', 'actualizado']) &&
+        request.resource.data.nombre is string &&
+        request.resource.data.nombre.size() > 0 && request.resource.data.nombre.size() <= 120 &&
+        request.resource.data.actualizado == request.time;
+    }
     match /chats/{chatId} {
       // La transacción puede consultar el ID estable antes de crearlo.
       allow get: if autenticado() &&

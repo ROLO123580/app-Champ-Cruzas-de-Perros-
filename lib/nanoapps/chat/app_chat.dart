@@ -11,6 +11,48 @@ class AppChat extends StatefulWidget {
   State<AppChat> createState() => _AppChatState();
 }
 
+/// Colores estables por persona, como los avatares de una app de mensajería.
+const _coloresAvatar = [
+  Color(0xFF00897B),
+  Color(0xFF5E35B1),
+  Color(0xFFD81B60),
+  Color(0xFF3949AB),
+  Color(0xFFF4511E),
+  Color(0xFF43A047),
+  Color(0xFF8E24AA),
+  Color(0xFF039BE5),
+];
+
+Widget _avatar(String nombre, {double radio = 22}) {
+  final limpio = nombre.trim();
+  final inicial = limpio.isEmpty ? '?' : limpio.characters.first.toUpperCase();
+  final color = _coloresAvatar[limpio.hashCode.abs() % _coloresAvatar.length];
+  return CircleAvatar(
+    radius: radio,
+    backgroundColor: color,
+    child: Text(
+      inicial,
+      style: TextStyle(
+        color: Colors.white,
+        fontWeight: FontWeight.w600,
+        fontSize: radio * 0.85,
+      ),
+    ),
+  );
+}
+
+String _dosDigitos(int n) => n.toString().padLeft(2, '0');
+String _hora(DateTime f) => '${_dosDigitos(f.hour)}:${_dosDigitos(f.minute)}';
+
+/// Hora si es de hoy, «Ayer», o la fecha corta, como en la lista de chats.
+String _cuando(DateTime f) {
+  final hoy = DateUtils.dateOnly(DateTime.now());
+  final dia = DateUtils.dateOnly(f);
+  if (dia == hoy) return _hora(f);
+  if (dia == hoy.subtract(const Duration(days: 1))) return 'Ayer';
+  return '${_dosDigitos(f.day)}/${_dosDigitos(f.month)}/${f.year % 100}';
+}
+
 class _AppChatState extends State<AppChat> {
   late final GestionarChat chat = widget.controlador ?? GestionarChat();
   final texto = TextEditingController();
@@ -47,12 +89,22 @@ class _AppChatState extends State<AppChat> {
   }
 
   Future<void> _crear() async {
-    final nombre = await showDialog<String>(
-      context: context,
-      builder: (_) => _NuevaConversacion(entreUsuarios: chat.uid != null),
-    );
-    if (nombre == null || !mounted) return;
-    final id = await chat.crear(nombre);
+    final String? destino;
+    if (chat.uid != null) {
+      destino = await showModalBottomSheet<String>(
+        context: context,
+        isScrollControlled: true,
+        showDragHandle: true,
+        builder: (_) => _ElegirContacto(chat: chat),
+      );
+    } else {
+      destino = await showDialog<String>(
+        context: context,
+        builder: (_) => const _NuevaConversacion(entreUsuarios: false),
+      );
+    }
+    if (destino == null || !mounted) return;
+    final id = await chat.crear(destino);
     if (id != null && mounted) {
       chat.seleccionar(id);
       setState(() {
@@ -74,6 +126,14 @@ class _AppChatState extends State<AppChat> {
     }
   }
 
+  void _abrir(String? id) {
+    chat.seleccionar(id);
+    setState(() {
+      seleccion = id;
+      texto.clear();
+    });
+  }
+
   @override
   Widget build(BuildContext context) => ListenableBuilder(
     listenable: chat,
@@ -92,19 +152,13 @@ class _AppChatState extends State<AppChat> {
                   onPressed: chat.ocupado || (!chat.cargado && chat.uid == null)
                       ? null
                       : _crear,
-                  icon: const Icon(Icons.add),
+                  icon: const Icon(Icons.add_comment_outlined),
                   label: const Text('Conversación'),
                 ),
               ],
             ),
           ),
-          if (chat.ocupado) const LinearProgressIndicator(),
-          if (chat.uid != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: SelectableText('Tu ID para conversar: ${chat.uid}'),
-            ),
-          if (chat.conectando) const LinearProgressIndicator(),
+          if (chat.ocupado || chat.conectando) const LinearProgressIndicator(),
           if (chat.errorUsuarios != null)
             ListTile(
               title: Text(chat.errorUsuarios!),
@@ -146,7 +200,7 @@ class _AppChatState extends State<AppChat> {
                       }
                       return Row(
                         children: [
-                          SizedBox(width: 260, child: lista),
+                          SizedBox(width: 320, child: lista),
                           const VerticalDivider(width: 1),
                           Expanded(child: detalle),
                         ],
@@ -158,166 +212,386 @@ class _AppChatState extends State<AppChat> {
       );
     },
   );
+
   Widget _lista(List<Conversacion> conversaciones) {
     if (conversaciones.isEmpty) {
-      return const Center(child: Text('Aún no tienes conversaciones.'));
+      return const Center(
+        child: Padding(
+          padding: EdgeInsets.all(24),
+          child: Text(
+            'Aún no tienes conversaciones.\nToca «Conversación» para escribirle a alguien.',
+            textAlign: TextAlign.center,
+          ),
+        ),
+      );
     }
-    return ListView.builder(
+    final estilo = Theme.of(context).textTheme;
+    return ListView.separated(
       itemCount: conversaciones.length,
+      separatorBuilder: (_, _) => const Divider(height: 1, indent: 76),
       itemBuilder: (context, index) {
         final c = conversaciones[index];
         final ultimo = c.mensajes.lastOrNull;
+        final resumen = c.entreUsuarios
+            ? (c.ultimoTexto?.isNotEmpty == true
+                  ? c.ultimoTexto!
+                  : 'Sin mensajes')
+            : (ultimo == null ? 'Sin mensajes' : ultimo.texto ?? '📷 Foto');
         return ListTile(
-          leading: const CircleAvatar(child: Icon(Icons.chat_bubble_outline)),
-          title: Text(c.nombre, maxLines: 1, overflow: TextOverflow.ellipsis),
-          subtitle: Text(
-            c.entreUsuarios
-                ? (c.ultimoTexto?.isNotEmpty == true
-                      ? c.ultimoTexto!
-                      : 'Sin mensajes')
-                : 'Local · ${ultimo == null ? 'Sin mensajes' : ultimo.texto ?? '📷 Foto'}',
+          contentPadding: const EdgeInsets.symmetric(
+            horizontal: 12,
+            vertical: 4,
+          ),
+          leading: _avatar(c.nombre, radio: 26),
+          title: Text(
+            c.nombre,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
+            style: estilo.titleMedium,
           ),
+          subtitle: Text(resumen, maxLines: 1, overflow: TextOverflow.ellipsis),
+          trailing: Text(_cuando(c.actualizada), style: estilo.labelSmall),
           selected: c.id == seleccion,
-          onTap: chat.ocupado
-              ? null
-              : () {
-                  chat.seleccionar(c.id);
-                  setState(() {
-                    seleccion = c.id;
-                    texto.clear();
-                  });
-                },
+          onTap: chat.ocupado ? null : () => _abrir(c.id),
         );
       },
     );
   }
 
-  Widget _detalle(Conversacion c) => Column(
-    children: [
-      ListTile(
-        leading: IconButton(
-          tooltip: 'Volver a conversaciones',
-          icon: const Icon(Icons.arrow_back),
-          onPressed: chat.ocupado
-              ? null
-              : () {
-                  chat.seleccionar(null);
-                  setState(() {
-                    seleccion = null;
-                    texto.clear();
-                  });
-                },
-        ),
-        title: Text(c.nombre),
-        subtitle: Text(
-          c.entreUsuarios
-              ? 'Chat entre usuarios · últimos 100 mensajes'
-              : chat.uid != null
-              ? 'Demostración de esta sesión · no contacta a otra persona'
-              : 'Historial local · no se envía a otra cuenta',
-        ),
-      ),
-      const Divider(height: 1),
-      Expanded(
-        child: chat.cargandoMensajes && c.entreUsuarios
-            ? const Center(child: CircularProgressIndicator())
-            : c.mensajes.isEmpty
-            ? const Center(child: Text('Envía el primer mensaje'))
-            : ListView.builder(
-                key: ValueKey(c.id),
-                reverse: true,
-                padding: const EdgeInsets.all(12),
-                itemCount: c.mensajes.length,
-                itemBuilder: (context, index) {
-                  final m = c.mensajes[c.mensajes.length - 1 - index];
-                  return Align(
-                    alignment:
-                        m.remitenteId == null || m.remitenteId == chat.uid
-                        ? Alignment.centerRight
-                        : Alignment.centerLeft,
-                    child: Container(
-                      constraints: const BoxConstraints(maxWidth: 360),
-                      margin: const EdgeInsets.only(bottom: 10),
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color:
-                            m.remitenteId == null || m.remitenteId == chat.uid
-                            ? Theme.of(context).colorScheme.primaryContainer
-                            : Theme.of(context)
-                                  .colorScheme
-                                  .surfaceContainerHighest,
-                        borderRadius: BorderRadius.circular(16),
-                      ),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.end,
-                        children: [
-                          if (m.foto != null)
-                            Image.memory(
-                              m.foto!,
-                              height: 180,
-                              fit: BoxFit.contain,
-                              semanticLabel: 'Foto enviada',
-                              cacheWidth: 720,
-                              errorBuilder: (_, error, stack) =>
-                                  const Text('No se pudo mostrar la foto'),
-                            ),
-                          if (m.texto != null) SelectableText(m.texto!),
-                          if (m.pendiente) const Text('Pendiente de envío'),
-                          const SizedBox(height: 4),
-                          Text(
-                            '${m.fecha.day}/${m.fecha.month}/${m.fecha.year} '
-                            '${m.fecha.hour.toString().padLeft(2, '0')}:'
-                            '${m.fecha.minute.toString().padLeft(2, '0')}',
-                            style: Theme.of(context).textTheme.labelSmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-      ),
-      SafeArea(
-        top: false,
-        child: Padding(
-          padding: const EdgeInsets.all(8),
-          child: Row(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: [
-              if (!c.entreUsuarios)
+  Widget _detalle(Conversacion c) {
+    final esquema = Theme.of(context).colorScheme;
+    return Column(
+      children: [
+        Material(
+          color: esquema.surfaceContainer,
+          child: ListTile(
+            leading: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
                 IconButton(
-                  tooltip: 'Enviar foto (hasta 1 MB)',
-                  icon: const Icon(Icons.photo_outlined),
-                  onPressed: chat.ocupado ? null : () => chat.enviarFoto(c.id),
+                  tooltip: 'Volver a conversaciones',
+                  icon: const Icon(Icons.arrow_back),
+                  onPressed: chat.ocupado ? null : () => _abrir(null),
                 ),
-              Expanded(
-                child: TextField(
-                  controller: texto,
-                  enabled: !chat.ocupado,
-                  minLines: 1,
-                  maxLines: 4,
-                  maxLength: 4000,
-                  decoration: const InputDecoration(
-                    hintText: 'Escribe un mensaje',
-                    counterText: '',
-                    border: OutlineInputBorder(),
-                  ),
-                  textInputAction: TextInputAction.send,
-                  onSubmitted: (_) => _enviar(),
-                ),
-              ),
-              IconButton(
-                tooltip: 'Enviar mensaje',
-                icon: const Icon(Icons.send),
-                onPressed: chat.ocupado ? null : _enviar,
-              ),
-            ],
+                _avatar(c.nombre, radio: 20),
+              ],
+            ),
+            title: Text(c.nombre, maxLines: 1, overflow: TextOverflow.ellipsis),
+            subtitle: Text(
+              c.entreUsuarios
+                  ? 'En Champ'
+                  : chat.uid != null
+                  ? 'Demostración de esta sesión · no contacta a otra persona'
+                  : 'Historial local · no se envía a otra cuenta',
+            ),
           ),
         ),
+        Expanded(
+          child: ColoredBox(
+            color: esquema.surfaceContainerLowest,
+            child: chat.cargandoMensajes && c.entreUsuarios
+                ? const Center(child: CircularProgressIndicator())
+                : c.mensajes.isEmpty
+                ? const Center(child: Text('Envía el primer mensaje 👋'))
+                : ListView.builder(
+                    key: ValueKey(c.id),
+                    reverse: true,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 12,
+                      vertical: 8,
+                    ),
+                    itemCount: c.mensajes.length,
+                    itemBuilder: (context, index) {
+                      final posicion = c.mensajes.length - 1 - index;
+                      final m = c.mensajes[posicion];
+                      final anterior = posicion > 0
+                          ? c.mensajes[posicion - 1]
+                          : null;
+                      final nuevoDia =
+                          anterior == null ||
+                          !DateUtils.isSameDay(anterior.fecha, m.fecha);
+                      return Column(
+                        children: [
+                          if (nuevoDia) _separadorDia(m.fecha),
+                          _burbuja(m),
+                        ],
+                      );
+                    },
+                  ),
+          ),
+        ),
+        SafeArea(
+          top: false,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(8, 6, 8, 8),
+            child: Row(
+              crossAxisAlignment: CrossAxisAlignment.end,
+              children: [
+                if (!c.entreUsuarios)
+                  IconButton(
+                    tooltip: 'Enviar foto (hasta 1 MB)',
+                    icon: const Icon(Icons.photo_outlined),
+                    onPressed: chat.ocupado
+                        ? null
+                        : () => chat.enviarFoto(c.id),
+                  ),
+                Expanded(
+                  child: TextField(
+                    controller: texto,
+                    enabled: !chat.ocupado,
+                    minLines: 1,
+                    maxLines: 4,
+                    maxLength: 4000,
+                    decoration: InputDecoration(
+                      hintText: 'Mensaje',
+                      counterText: '',
+                      filled: true,
+                      isDense: true,
+                      contentPadding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 12,
+                      ),
+                      border: OutlineInputBorder(
+                        borderRadius: BorderRadius.circular(24),
+                        borderSide: BorderSide.none,
+                      ),
+                    ),
+                    textInputAction: TextInputAction.send,
+                    onSubmitted: (_) => _enviar(),
+                  ),
+                ),
+                const SizedBox(width: 6),
+                IconButton.filled(
+                  tooltip: 'Enviar mensaje',
+                  icon: const Icon(Icons.send),
+                  onPressed: chat.ocupado ? null : _enviar,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _separadorDia(DateTime fecha) {
+    final hoy = DateUtils.dateOnly(DateTime.now());
+    final dia = DateUtils.dateOnly(fecha);
+    final etiqueta = dia == hoy
+        ? 'Hoy'
+        : dia == hoy.subtract(const Duration(days: 1))
+        ? 'Ayer'
+        : '${_dosDigitos(fecha.day)}/${_dosDigitos(fecha.month)}/${fecha.year}';
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surfaceContainerHigh,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          child: Text(etiqueta, style: Theme.of(context).textTheme.labelSmall),
+        ),
       ),
-    ],
+    );
+  }
+
+  Widget _burbuja(Mensaje m) {
+    final esquema = Theme.of(context).colorScheme;
+    final propio = m.remitenteId == null || m.remitenteId == chat.uid;
+    const radio = Radius.circular(14);
+    return Align(
+      alignment: propio ? Alignment.centerRight : Alignment.centerLeft,
+      child: Container(
+        constraints: const BoxConstraints(maxWidth: 420),
+        margin: EdgeInsets.only(
+          bottom: 6,
+          left: propio ? 48 : 0,
+          right: propio ? 0 : 48,
+        ),
+        padding: const EdgeInsets.fromLTRB(12, 8, 10, 6),
+        decoration: BoxDecoration(
+          color: propio
+              ? esquema.primaryContainer
+              : esquema.surfaceContainerHighest,
+          borderRadius: BorderRadius.only(
+            topLeft: propio ? radio : Radius.zero,
+            topRight: propio ? Radius.zero : radio,
+            bottomLeft: radio,
+            bottomRight: radio,
+          ),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.end,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (m.foto != null)
+              ClipRRect(
+                borderRadius: BorderRadius.circular(8),
+                child: Image.memory(
+                  m.foto!,
+                  height: 180,
+                  fit: BoxFit.contain,
+                  semanticLabel: 'Foto enviada',
+                  cacheWidth: 720,
+                  errorBuilder: (_, error, stack) =>
+                      const Text('No se pudo mostrar la foto'),
+                ),
+              ),
+            if (m.texto != null)
+              Align(
+                alignment: Alignment.centerLeft,
+                widthFactor: 1,
+                child: SelectableText(m.texto!),
+              ),
+            const SizedBox(height: 2),
+            Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _hora(m.fecha),
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+                if (propio) ...[
+                  const SizedBox(width: 4),
+                  Icon(
+                    m.pendiente ? Icons.schedule : Icons.done,
+                    size: 14,
+                    semanticLabel: m.pendiente
+                        ? 'Pendiente de envío'
+                        : 'Enviado',
+                  ),
+                ],
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Agenda de contactos con buscador, como al iniciar un chat en WhatsApp.
+class _ElegirContacto extends StatefulWidget {
+  const _ElegirContacto({required this.chat});
+  final GestionarChat chat;
+  @override
+  State<_ElegirContacto> createState() => _ElegirContactoState();
+}
+
+class _ElegirContactoState extends State<_ElegirContacto> {
+  final buscar = TextEditingController();
+  @override
+  void dispose() {
+    buscar.dispose();
+    super.dispose();
+  }
+
+  String _normalizar(String t) {
+    const con = 'áéíóúüñ';
+    const sin = 'aeiouun';
+    final bajo = t.toLowerCase();
+    final buffer = StringBuffer();
+    for (final c in bajo.characters) {
+      final i = con.indexOf(c);
+      buffer.write(i < 0 ? c : sin[i]);
+    }
+    return buffer.toString();
+  }
+
+  Future<void> _porId() async {
+    final id = await showDialog<String>(
+      context: context,
+      builder: (_) => const _NuevaConversacion(entreUsuarios: true),
+    );
+    if (id != null && mounted) Navigator.pop(context, id);
+  }
+
+  @override
+  Widget build(BuildContext context) => ListenableBuilder(
+    listenable: widget.chat,
+    builder: (context, _) {
+      final filtro = _normalizar(buscar.text.trim());
+      final contactos =
+          widget.chat.contactos.entries
+              .where((e) => _normalizar(e.value).contains(filtro))
+              .toList()
+            ..sort(
+              (a, b) => _normalizar(a.value).compareTo(_normalizar(b.value)),
+            );
+      return SizedBox(
+        height: MediaQuery.sizeOf(context).height * 0.75,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Text(
+                'Nueva conversación',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: TextField(
+                controller: buscar,
+                autofocus: true,
+                decoration: InputDecoration(
+                  hintText: 'Buscar por nombre',
+                  prefixIcon: const Icon(Icons.search),
+                  filled: true,
+                  border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(24),
+                    borderSide: BorderSide.none,
+                  ),
+                ),
+                onChanged: (_) => setState(() {}),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Expanded(
+              child: contactos.isEmpty
+                  ? Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(24),
+                        child: Text(
+                          widget.chat.contactos.isEmpty
+                              ? 'Todavía no hay otras cuentas en Champ.'
+                              : 'Nadie coincide con «${buscar.text.trim()}».',
+                          textAlign: TextAlign.center,
+                        ),
+                      ),
+                    )
+                  : ListView.builder(
+                      itemCount: contactos.length,
+                      itemBuilder: (context, index) {
+                        final contacto = contactos[index];
+                        return ListTile(
+                          leading: _avatar(contacto.value),
+                          title: Text(contacto.value),
+                          onTap: () => Navigator.pop(context, contacto.key),
+                        );
+                      },
+                    ),
+            ),
+            TextButton.icon(
+              onPressed: _porId,
+              icon: const Icon(Icons.badge_outlined),
+              label: const Text('Usar el ID de una cuenta'),
+            ),
+            if (widget.chat.uid != null)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: SelectableText(
+                  'Tu ID: ${widget.chat.uid}',
+                  style: Theme.of(context).textTheme.labelSmall,
+                ),
+              ),
+            const SizedBox(height: 8),
+          ],
+        ),
+      );
+    },
   );
 }
 
@@ -353,9 +627,6 @@ class _NuevaConversacionState extends State<_NuevaConversacion> {
         labelText: widget.entreUsuarios
             ? 'ID del usuario de Champ'
             : 'Nombre del contacto o grupo',
-        helperText: widget.entreUsuarios
-            ? 'Pide a la otra persona su ID desde Chat.'
-            : null,
       ),
       onChanged: (_) => setState(() {}),
       onSubmitted: (_) => crear(),

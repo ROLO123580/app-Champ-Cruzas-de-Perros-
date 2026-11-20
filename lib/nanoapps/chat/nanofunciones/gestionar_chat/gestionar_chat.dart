@@ -32,6 +32,10 @@ class GestionarChat extends ChangeNotifier {
   bool conectando = false;
   StreamSubscription<List<Conversacion>>? _suscripcion;
   StreamSubscription<List<Mensaje>>? _suscripcionMensajes;
+  StreamSubscription<Map<String, String>>? _suscripcionContactos;
+
+  /// Directorio de cuentas (UID → nombre visible), sin la cuenta propia.
+  Map<String, String> contactos = const {};
   List<Conversacion> _remotas = [];
   List<Mensaje> _mensajes = [];
   String? _seleccionada;
@@ -48,7 +52,7 @@ class GestionarChat extends ChangeNotifier {
     final remotas = _remotas.map(
       (c) => Conversacion(
         id: c.id,
-        nombre: c.nombre,
+        nombre: _nombreDe(c),
         fecha: c.fecha,
         participantes: c.participantes,
         ultimaActividad: c.ultimaActividad,
@@ -59,6 +63,18 @@ class GestionarChat extends ChangeNotifier {
     final lista = [..._conversaciones, ...remotas]
       ..sort((a, b) => b.actualizada.compareTo(a.actualizada));
     return List.unmodifiable(lista);
+  }
+
+  /// Nombre visible de otra cuenta; nunca muestra el UID técnico.
+  String nombreContacto(String otroUid) =>
+      contactos[otroUid] ?? 'Usuario de Champ';
+
+  String _nombreDe(Conversacion c) {
+    final otro = c.participantes.where((p) => p != uid).firstOrNull;
+    if (otro == null) return c.nombre;
+    final conocido = contactos[otro];
+    if (conocido != null) return conocido;
+    return c.nombre == otro ? 'Usuario de Champ' : c.nombre;
   }
 
   void _avisar() {
@@ -100,6 +116,18 @@ class GestionarChat extends ChangeNotifier {
     if (_usuarios == null || _cerrado) return;
     final version = ++_versionConversaciones;
     unawaited(_suscripcion?.cancel());
+    unawaited(_suscripcionContactos?.cancel());
+    try {
+      _suscripcionContactos = _usuarios.contactos().listen(
+        (mapa) {
+          if (_cerrado || version != _versionConversaciones) return;
+          contactos = Map.unmodifiable(mapa);
+          _avisar();
+        },
+        // Sin directorio el chat sigue operativo con nombres genéricos.
+        onError: (Object _) {},
+      );
+    } catch (_) {}
     conectando = true;
     errorUsuarios = null;
     try {
@@ -248,6 +276,7 @@ class GestionarChat extends ChangeNotifier {
     _cerrado = true;
     unawaited(_suscripcion?.cancel());
     unawaited(_suscripcionMensajes?.cancel());
+    unawaited(_suscripcionContactos?.cancel());
     super.dispose();
   }
 }

@@ -224,6 +224,7 @@ class _ChampShellState extends State<ChampShell> {
             ? null
             : RepositorioChatFirestore(
                 uid: widget.controladorSesion!.usuario!.uid,
+                nombre: widget.controladorSesion!.usuario!.nombre,
               ),
       );
   GestionarCruces get cruces => _cruces ??=

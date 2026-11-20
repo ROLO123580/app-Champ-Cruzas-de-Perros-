@@ -33,6 +33,16 @@ class _Canal implements CanalChatUsuarios {
   }
 
   @override
+  Stream<Map<String, String>> contactos() => Stream.value({
+    for (final otro in const {
+      'ana': 'Ana',
+      'pedro': 'Pedro',
+      'otro': 'Otro',
+    }.entries)
+      if (otro.key != uid) otro.key: otro.value,
+  });
+
+  @override
   Stream<List<Mensaje>> mensajes(String id) {
     late StreamController<List<Mensaje>> salida;
     StreamSubscription<void>? sub;
@@ -147,7 +157,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.text('pedro'));
+      await tester.tap(find.text('Pedro'));
       await tester.pumpAndSettle();
       expect(find.byTooltip('Enviar foto (hasta 1 MB)'), findsNothing);
       await tester.enterText(find.byType(TextField), 'Hola');
@@ -167,6 +177,37 @@ void main() {
         tester.widget<TextField>(find.byType(TextField)).controller!.text,
         isEmpty,
       );
+      await tester.pumpWidget(const SizedBox());
+      chat.dispose();
+      await servidor.cambios.close();
+    },
+  );
+  testWidgets(
+    'la agenda muestra nombres, filtra y abre el chat sin pedir el ID',
+    (tester) async {
+      final servidor = _Servidor();
+      final chat = _controlador(_Canal('ana', servidor));
+      await chat.cargar();
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(body: AppChat(controlador: chat)),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.textContaining('Tu ID para conversar'), findsNothing);
+      await tester.tap(find.text('Conversación'));
+      await tester.pumpAndSettle();
+      expect(find.text('Pedro'), findsOneWidget);
+      expect(find.text('Otro'), findsOneWidget);
+      expect(find.text('Ana'), findsNothing);
+      await tester.enterText(find.byType(TextField), 'ped');
+      await tester.pumpAndSettle();
+      expect(find.text('Otro'), findsNothing);
+      await tester.tap(find.text('Pedro'));
+      await tester.pumpAndSettle();
+      expect(servidor.chats.single.participantes, ['ana', 'pedro']);
+      expect(find.text('Pedro'), findsWidgets);
+      expect(find.text('pedro'), findsNothing);
       await tester.pumpWidget(const SizedBox());
       chat.dispose();
       await servidor.cambios.close();

@@ -97,6 +97,11 @@ try {
   const u = (n) => usuarios[n - 1];
   console.log(`Cuentas listas: ${usuarios.length}`);
 
+  // 1b. Directorio de contactos del chat (UID → nombre visible)
+  for (const s of usuarios) {
+    await crearSiFalta(s, `perfiles_publicos/${s.uid}`, { nombre: s.nombre, actualizado: serverTimestamp() });
+  }
+
   // 2. Fichas privadas de Cruces (un perro por cuenta)
   for (const s of usuarios) {
     const p = s.usuario.perro;
