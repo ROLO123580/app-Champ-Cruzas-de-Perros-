@@ -33,7 +33,14 @@ El script se puede repetir: no duplica datos.
    bash tool/simulacion/preparar_sim.sh champ-sim
    ```
 
-4. Abre Champ conectada al entorno simulado:
+4. En una terminal, inicia la API simulada. Usa su propio SQLite en
+   `~/.local/share/RHIA/ChampSim/` y el puerto 8788; el `champ.db` real no se toca:
+
+   ```bash
+   bash tool/simulacion/champ_api_sim.sh
+   ```
+
+5. En otra terminal, abre Champ conectada al entorno simulado:
 
    ```bash
    bash tool/simulacion/champ_sim.sh
