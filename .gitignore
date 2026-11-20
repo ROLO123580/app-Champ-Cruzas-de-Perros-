@@ -50,3 +50,4 @@ app.*.map.json
 # Respaldos del actualizador de codigo
 /.champ-respaldos/
 
+node_modules/
